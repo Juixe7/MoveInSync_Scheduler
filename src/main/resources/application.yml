@@ -1,0 +1,112 @@
+spring:
+  application:
+    name: movesync-scheduler
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:scheduler_db}
+    username: ${DB_USER:scheduler}
+    password: ${DB_PASSWORD:scheduler_pass}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 5000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate  # Flyway handles schema, Hibernate only validates
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: false   # Prevents lazy-loading traps in controllers
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false  # ISO-8601 strings, not epoch millis
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true   # Kafka producer-side dedup
+
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=1000,expireAfterWrite=5s   # default spec, overridden per cache in code
+
+# =====================================================
+# Scheduler-specific configuration (maps to SchedulerProperties.java)
+# =====================================================
+scheduler:
+  node-id: ${NODE_ID:node-1}       # Unique per container in docker-compose
+
+  # Partition config
+  partition-count: 64
+  poll-interval-ms: 500            # How often to check for due jobs
+  poll-batch-size: 50              # Max jobs to claim per poll cycle
+
+  # Lease config
+  lease-timeout-sec: 30
+  lease-renewal-interval-sec: 10
+  rebalance-cooldown-sec: 15
+
+  # Worker pools
+  critical-pool-size: 4
+  worker-pool-size: 20
+
+  # Fairness
+  max-concurrent-per-tenant: 50
+  tenant-queue-capacity: 10000
+  fairness-max-delay-sec: 5
+
+  # Retry defaults
+  default-max-retries: 3
+  initial-backoff-ms: 1000
+  max-backoff-ms: 60000
+  backoff-multiplier: 2.0
+  jitter-factor: 0.25
+
+  # Misfire
+  misfire-threshold-sec: 30
+  max-misfire-lookback-hours: 24
+
+  # Starvation
+  max-starvation-delay-sec: 300
+
+# =====================================================
+# Actuator — expose health, metrics, prometheus
+# =====================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      node: ${scheduler.node-id}
+
+# =====================================================
+# Logging — structured, no PII
+# =====================================================
+logging:
+  level:
+    com.movesync.scheduler: INFO
+    com.movesync.scheduler.engine: DEBUG
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{ISO8601} [%thread] %-5level [node=%X{nodeId}] [tenant=%X{tenantId}] %logger{36} - %msg%n"
+
+server:
+  port: ${SERVER_PORT:8080}
