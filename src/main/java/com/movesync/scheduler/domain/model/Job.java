@@ -2,6 +2,8 @@ package com.movesync.scheduler.domain.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -43,6 +45,7 @@ public class Job {
     @Column(name = "next_fire_time")
     private Instant nextFireTime;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "jsonb")
     @Builder.Default
     private String payload = "{}";
