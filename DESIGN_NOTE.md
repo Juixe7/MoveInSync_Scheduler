@@ -68,3 +68,4 @@ To achieve exactly-once effect without distributed two-phase commits (2PC):
   - `workerPool` (20 threads default, 50 in benchmark): Serves `HIGH`, `NORMAL`, and `LOW` priority jobs.
 - **FairnessQueue:** An in-memory concurrency semaphore per tenant prevents noisy tenants from monopolizing worker threads.
 - **Caffeine Metadata Caching:** Tenant pause state is cached with a 5-second TTL (`isTenantPaused`), eliminating redundant database roundtrips on high-frequency poll cycles.
+

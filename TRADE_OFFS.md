@@ -57,3 +57,4 @@ This document explicitly details the intentional design trade-offs made in the M
 - **Rationale:**
   - During the 100K chaos benchmark, Node 2 was killed (`kill -9`) and Node 3 was frozen (`docker pause`), forcing Node 1 to temporarily handle the entire 64-partition load alone.
   - Elevated pools were configured via Docker Compose environment variables to ensure single-node capacity during extreme chaos without altering safe production defaults in `application.yml`.
+

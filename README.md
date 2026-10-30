@@ -159,3 +159,4 @@ $env:JAVA_HOME = "C:\Users\Asus\.jdks\temurin-21"
 - [Detailed Architecture & Fencing Explanation](file:///C:/Users/Asus/Desktop/scheduler/EXPLANATION.md) — complete deep-dive covering failure modes, zombie fencing diagram, Two Generals Problem, cancel race, and Big-O tables.
 - [Design Decisions Note](file:///C:/Users/Asus/Desktop/scheduler/DESIGN_NOTE.md) — why `hash(jobId)` was chosen over `hash(tenantId)`, lease design, and outbox pattern.
 - [Engineering Trade-Offs](file:///C:/Users/Asus/Desktop/scheduler/TRADE_OFFS.md) — explicit documentation of intentional trade-offs and operational limits.
+
