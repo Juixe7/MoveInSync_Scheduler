@@ -11,7 +11,7 @@ public class PartitionAssigner {
     }
 
     public int assign(UUID jobId) {
-        return Math.abs(jobId.hashCode()) % partitionCount;
+        return Math.floorMod(jobId.hashCode(), partitionCount);
     }
 }
 

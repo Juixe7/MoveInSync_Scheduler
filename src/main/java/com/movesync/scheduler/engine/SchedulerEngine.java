@@ -3,7 +3,6 @@ package com.movesync.scheduler.engine;
 import com.movesync.scheduler.config.SchedulerProperties;
 import com.movesync.scheduler.domain.model.*;
 import com.movesync.scheduler.domain.service.RetryCalculator;
-import com.movesync.scheduler.exception.NonRetryableException;
 import com.movesync.scheduler.exception.StaleLeaseException;
 import com.movesync.scheduler.handler.JobHandler;
 import com.movesync.scheduler.handler.JobHandlerRegistry;
@@ -15,9 +14,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 
 @Component
@@ -27,11 +24,11 @@ public class SchedulerEngine {
 
     private final JobRepository jobRepository;
     private final JobExecutionRepository executionRepository;
+    private final LeaseManager leaseManager;
+    private final FencedWriter fencedWriter;
     private final JobHandlerRegistry handlerRegistry;
     private final RetryCalculator retryCalculator;
     private final SchedulerProperties properties;
-    private final LeaseManager leaseManager;
-    private final FencedWriter fencedWriter;
     private final TransactionTemplate transactionTemplate;
 
     private ExecutorService workerPool;
@@ -39,48 +36,38 @@ public class SchedulerEngine {
     private ScheduledExecutorService mainLoop;
     private volatile boolean running = false;
 
-    /**
-     * Called by NodeLifecycle after LeaseManager is initialized.
-     */
     public void start() {
-        log.info("Starting SchedulerEngine, nodeId={}", properties.getNodeId());
+        log.info("Starting scheduler engine, nodeId={}", properties.getNodeId());
 
-        workerPool = Executors.newFixedThreadPool(properties.getWorkerPoolSize(),
-            r -> new Thread(r, "worker-" + r.hashCode()));
-        criticalPool = Executors.newFixedThreadPool(properties.getCriticalPoolSize(),
-            r -> new Thread(r, "critical-" + r.hashCode()));
-        mainLoop = Executors.newSingleThreadScheduledExecutor(
-            r -> new Thread(r, "scheduler-main"));
+        // Initialize thread pools
+        workerPool = Executors.newFixedThreadPool(properties.getWorkerPoolSize());
+        criticalPool = Executors.newFixedThreadPool(properties.getCriticalPoolSize());
+        mainLoop = Executors.newSingleThreadScheduledExecutor();
 
+        // Start the poll loop
         running = true;
-
-        // Add jitter to initial delay to stagger nodes
-        long initialDelay = ThreadLocalRandom.current().nextLong(0, properties.getPollIntervalMs());
-
         mainLoop.scheduleWithFixedDelay(
             this::pollAndExecute,
-            initialDelay,
+            0,
             properties.getPollIntervalMs(),
             TimeUnit.MILLISECONDS
         );
 
-        log.info("SchedulerEngine started");
+        log.info("Scheduler engine started, nodeId={}", properties.getNodeId());
     }
 
     private void pollAndExecute() {
         if (!running) return;
 
+        List<Integer> ownedPartitions = leaseManager.getOwnedPartitionList();
+        if (ownedPartitions.isEmpty()) return;
+
         List<Map.Entry<Job, JobExecution>> jobsToDispatch = new ArrayList<>();
 
         try {
             transactionTemplate.executeWithoutResult(txStatus -> {
-                List<Integer> myPartitions = leaseManager.getOwnedPartitionList();
-                if (myPartitions.isEmpty()) {
-                    return;  // No partitions owned yet (or all stolen)
-                }
-
                 List<Job> dueJobs = jobRepository.findDueJobs(
-                    myPartitions,
+                    ownedPartitions,
                     properties.getPollBatchSize()
                 );
 
@@ -109,31 +96,24 @@ public class SchedulerEngine {
 
     private JobExecution prepareJobExecution(Job job) {
         try {
-            // Double-check we still own this partition
-            if (!leaseManager.ownsPartition(job.getPartitionId())) {
-                log.debug("No longer own partition {}, skipping job {}",
-                    job.getPartitionId(), job.getId());
-                return null;
-            }
-
-            // Get fencing token from in-memory cache (not DB query per job)
+            // Get fencing token from LeaseManager cache
             Long fencingToken = leaseManager.getFencingToken(job.getPartitionId());
             if (fencingToken == null) {
-                log.warn("No fencing token for partition {}, skipping job {}",
+                log.warn("No lease for partition {}, skipping job {}",
                     job.getPartitionId(), job.getId());
                 return null;
             }
 
-            // Idempotency check
+            // Create execution record (idempotency check)
             String idempotencyKey = JobExecution.buildIdempotencyKey(
                 job.getId(), job.getNextFireTime());
 
             if (executionRepository.existsByIdempotencyKey(idempotencyKey)) {
-                log.debug("Job {} already has execution, skipping", job.getId());
+                log.debug("Job {} already has execution for this fire time, skipping",
+                    job.getId());
                 return null;
             }
 
-            // Create execution record
             JobExecution execution = JobExecution.builder()
                 .jobId(job.getId())
                 .tenantId(job.getTenantId())
@@ -156,29 +136,29 @@ public class SchedulerEngine {
 
     private void executeJob(Job job, JobExecution execution) {
         try {
+            // Get handler
             JobHandler handler = handlerRegistry.getHandler(job.getJobType());
+
+            // Run it
             handler.handle(execution);
 
-            // Fenced completion (throws StaleLeaseException if fencing fails)
+            // Fenced completion via FencedWriter
             fencedWriter.completeWithFencing(job, execution, null);
 
-        } catch (StaleLeaseException e) {
-            // Fencing rejected — another node took over. Don't retry.
-            log.warn("Fencing rejected for job {}, dropping", job.getId());
-
-        } catch (NonRetryableException e) {
-            fencedWriter.deadLetterWithFencing(job, execution,
-                e.getClass().getSimpleName() + ": " + e.getMessage());
-
+        } catch (StaleLeaseException sle) {
+            log.warn("Execution abandoned due to stale lease: job={} partition={}",
+                job.getId(), job.getPartitionId());
         } catch (Exception e) {
-            handleRetry(job, execution, e);
+            handleFailure(job, execution, e);
         }
     }
 
-    private void handleRetry(Job job, JobExecution execution, Exception e) {
-        if (retryCalculator.shouldRetry(execution.getAttemptNumber(), job.getMaxRetries())) {
-            long backoff = retryCalculator.computeBackoffMs(execution.getAttemptNumber());
+    public void handleFailure(Job job, JobExecution execution, Exception e) {
+        boolean isNonRetryable = e instanceof com.movesync.scheduler.exception.NonRetryableException;
 
+        if (!isNonRetryable && retryCalculator.shouldRetry(execution.getAttemptNumber(), job.getMaxRetries())) {
+            // Retry
+            long backoff = retryCalculator.computeBackoffMs(execution.getAttemptNumber());
             transactionTemplate.executeWithoutResult(txStatus -> {
                 executionRepository.updateForRetry(
                     execution.getId(),
@@ -188,18 +168,13 @@ public class SchedulerEngine {
                 );
             });
 
-            log.warn("Job {} failed (attempt {}), retrying in {}ms",
-                job.getId(), execution.getAttemptNumber(), backoff);
+            log.warn("Job {} failed (attempt {}), retrying in {}ms: {}",
+                job.getId(), execution.getAttemptNumber(), backoff, e.getMessage());
 
+            // Schedule retry
             workerPool.submit(() -> {
                 try {
                     Thread.sleep(backoff);
-                    // Check we still own the partition before retrying
-                    if (!leaseManager.ownsPartition(job.getPartitionId())) {
-                        log.warn("Lost partition {} during retry, dropping job {}",
-                            job.getPartitionId(), job.getId());
-                        return;
-                    }
                     execution.setAttemptNumber(execution.getAttemptNumber() + 1);
                     executeJob(job, execution);
                 } catch (InterruptedException ie) {
@@ -207,24 +182,25 @@ public class SchedulerEngine {
                 }
             });
         } else {
-            fencedWriter.deadLetterWithFencing(job, execution,
-                e.getClass().getSimpleName() + ": " + e.getMessage());
+            // Dead-letter via FencedWriter
+            fencedWriter.deadLetterWithFencing(job, execution, e.getClass().getSimpleName() + ": " + e.getMessage());
+            log.error("Job {} dead-lettered after {} attempts: {}",
+                job.getId(), execution.getAttemptNumber(), e.getMessage());
         }
     }
 
+    // Graceful shutdown
     public void stop() {
         running = false;
-        if (mainLoop != null) mainLoop.shutdown();
-        if (workerPool != null) {
-            workerPool.shutdown();
-            try { workerPool.awaitTermination(10, TimeUnit.SECONDS); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        mainLoop.shutdown();
+        workerPool.shutdown();
+        criticalPool.shutdown();
+        try {
+            workerPool.awaitTermination(10, TimeUnit.SECONDS);
+            criticalPool.awaitTermination(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
-        if (criticalPool != null) {
-            criticalPool.shutdown();
-            try { criticalPool.awaitTermination(10, TimeUnit.SECONDS); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }
-        log.info("SchedulerEngine stopped");
+        log.info("Scheduler engine stopped");
     }
 }

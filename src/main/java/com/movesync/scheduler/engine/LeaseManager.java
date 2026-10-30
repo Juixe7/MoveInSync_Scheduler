@@ -35,6 +35,7 @@ public class LeaseManager {
      */
     @Transactional
     public void initialize() {
+        leaseRepository.heartbeatNode(properties.getNodeId());
         int fairShare = computeFairShare();
         log.info("Initializing LeaseManager, nodeId={}, targetPartitions={}",
             properties.getNodeId(), fairShare);
@@ -79,6 +80,7 @@ public class LeaseManager {
 
             // Renew all our leases using DB clock inside a transaction
             transactionTemplate.executeWithoutResult(status -> {
+                leaseRepository.heartbeatNode(properties.getNodeId());
                 int renewed = leaseRepository.renewLeases(
                     properties.getNodeId(),
                     properties.getLeaseTimeoutSec()
@@ -162,7 +164,9 @@ public class LeaseManager {
     @Transactional
     public void releasePartitions(List<Integer> partitionIds) {
         if (partitionIds.isEmpty()) return;
-        leaseRepository.releasePartitions(properties.getNodeId(), partitionIds);
+        transactionTemplate.executeWithoutResult(status -> {
+            leaseRepository.releasePartitions(properties.getNodeId(), partitionIds);
+        });
         partitionIds.forEach(id -> {
             ownedPartitions.remove(id);
             fencingTokens.remove(id);
@@ -175,7 +179,10 @@ public class LeaseManager {
      */
     @Transactional
     public void releaseAll() {
-        leaseRepository.releaseAllPartitions(properties.getNodeId());
+        transactionTemplate.executeWithoutResult(status -> {
+            leaseRepository.removeNode(properties.getNodeId());
+            leaseRepository.releaseAllPartitions(properties.getNodeId());
+        });
         ownedPartitions.clear();
         fencingTokens.clear();
         log.info("Released all partitions for graceful shutdown");
@@ -189,25 +196,27 @@ public class LeaseManager {
     public List<Integer> claimAdditionalPartitions(int count) {
         if (count <= 0) return List.of();
 
-        Set<Integer> before = new HashSet<>(ownedPartitions);
+        return transactionTemplate.execute(status -> {
+            Set<Integer> before = new HashSet<>(ownedPartitions);
 
-        leaseRepository.claimPartitions(
-            properties.getNodeId(),
-            count,
-            properties.getLeaseTimeoutSec()
-        );
+            leaseRepository.claimPartitions(
+                properties.getNodeId(),
+                count,
+                properties.getLeaseTimeoutSec()
+            );
 
-        refreshOwnedPartitions();
+            refreshOwnedPartitions();
 
-        // Find what's new
-        Set<Integer> newPartitions = new HashSet<>(ownedPartitions);
-        newPartitions.removeAll(before);
+            // Find what's new
+            Set<Integer> newPartitions = new HashSet<>(ownedPartitions);
+            newPartitions.removeAll(before);
 
-        if (!newPartitions.isEmpty()) {
-            log.info("Claimed {} additional partitions: {}", newPartitions.size(), newPartitions);
-        }
+            if (!newPartitions.isEmpty()) {
+                log.info("Claimed {} additional partitions: {}", newPartitions.size(), newPartitions);
+            }
 
-        return new ArrayList<>(newPartitions);
+            return new ArrayList<>(newPartitions);
+        });
     }
 
     public void shutdown() {
@@ -223,3 +232,4 @@ public class LeaseManager {
         releaseAll();
     }
 }
+

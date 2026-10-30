@@ -107,7 +107,7 @@ public class PartitionRebalancer {
     private List<Integer> selectPartitionsToRelease(int count) {
         List<Integer> owned = new ArrayList<>(leaseManager.getOwnedPartitions());
         owned.sort(Comparator.reverseOrder());  // highest first
-        return owned.subList(0, Math.min(count, owned.size()));
+        return new ArrayList<>(owned.subList(0, Math.min(count, owned.size())));
     }
 
     public void shutdown() {
@@ -122,3 +122,4 @@ public class PartitionRebalancer {
         }
     }
 }
+

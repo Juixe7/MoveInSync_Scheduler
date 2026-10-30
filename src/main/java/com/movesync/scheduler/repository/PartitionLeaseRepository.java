@@ -48,6 +48,7 @@ public interface PartitionLeaseRepository extends JpaRepository<PartitionLease, 
         SET lease_expires = NOW() + CAST(:timeoutSec || ' seconds' AS INTERVAL),
             updated_at = NOW()
         WHERE node_id = :nodeId
+          AND lease_expires > NOW()
         """, nativeQuery = true)
     int renewLeases(
         @Param("nodeId") String nodeId,
@@ -58,7 +59,8 @@ public interface PartitionLeaseRepository extends JpaRepository<PartitionLease, 
     @Modifying
     @Query(value = """
         UPDATE partition_leases
-        SET lease_expires = NOW(),
+        SET node_id = NULL,
+            lease_expires = NOW() - INTERVAL '1 second',
             updated_at = NOW()
         WHERE node_id = :nodeId
           AND partition_id IN (:partitionIds)
@@ -72,16 +74,34 @@ public interface PartitionLeaseRepository extends JpaRepository<PartitionLease, 
     @Modifying
     @Query(value = """
         UPDATE partition_leases
-        SET lease_expires = NOW(), updated_at = NOW()
+        SET node_id = NULL,
+            lease_expires = NOW() - INTERVAL '1 second',
+            updated_at = NOW()
         WHERE node_id = :nodeId
         """, nativeQuery = true)
     void releaseAllPartitions(@Param("nodeId") String nodeId);
 
+    // Heartbeat node presence
+    @Modifying
+    @Query(value = """
+        INSERT INTO node_heartbeats (node_id, last_heartbeat)
+        VALUES (:nodeId, NOW())
+        ON CONFLICT (node_id) DO UPDATE
+        SET last_heartbeat = NOW()
+        """, nativeQuery = true)
+    void heartbeatNode(@Param("nodeId") String nodeId);
+
+    // Remove node on graceful shutdown
+    @Modifying
+    @Query(value = "DELETE FROM node_heartbeats WHERE node_id = :nodeId", nativeQuery = true)
+    void removeNode(@Param("nodeId") String nodeId);
+
     // Count distinct active nodes (for fair-share calculation)
     @Query(value = """
-        SELECT COUNT(DISTINCT node_id)
-        FROM partition_leases
-        WHERE node_id IS NOT NULL AND lease_expires > NOW()
+        SELECT GREATEST(
+            (SELECT COUNT(*) FROM node_heartbeats WHERE last_heartbeat > NOW() - INTERVAL '30 seconds'),
+            (SELECT COUNT(DISTINCT node_id) FROM partition_leases WHERE node_id IS NOT NULL AND lease_expires > NOW())
+        )
         """, nativeQuery = true)
     int countActiveNodes();
 
