@@ -1,6 +1,5 @@
 package com.movesync.scheduler.engine;
 
-import com.movesync.scheduler.config.SchedulerProperties;
 import com.movesync.scheduler.domain.model.*;
 import com.movesync.scheduler.domain.service.CronResolver;
 import com.movesync.scheduler.exception.StaleLeaseException;
