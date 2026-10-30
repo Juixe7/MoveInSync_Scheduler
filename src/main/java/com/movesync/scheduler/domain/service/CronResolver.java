@@ -23,6 +23,10 @@ public class CronResolver {
         );
     }
 
+    public Instant nextFireTime(String cronExpression, String timezoneId) {
+        return nextFireTime(cronExpression, timezoneId, Instant.now());
+    }
+
     /**
      * Compute the next fire time after 'after' in the given timezone.
      * Returns UTC instant.

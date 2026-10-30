@@ -60,5 +60,20 @@ public interface JobRepository extends JpaRepository<Job, UUID> {
         @Param("status") JobStatus status,
         @Param("now") Instant now
     );
+
+    // Find overdue jobs in a specific partition
+    @Query(value = """
+        SELECT * FROM jobs
+        WHERE partition_id = :partitionId
+          AND status = 'ACTIVE'
+          AND next_fire_time IS NOT NULL
+          AND next_fire_time < NOW()
+          AND next_fire_time > :lookbackLimit
+        ORDER BY next_fire_time ASC
+        """, nativeQuery = true)
+    List<Job> findOverdueByPartition(
+        @Param("partitionId") int partitionId,
+        @Param("lookbackLimit") Instant lookbackLimit
+    );
 }
 

@@ -73,5 +73,13 @@ public interface JobExecutionRepository extends JpaRepository<JobExecution, UUID
         @Param("nodeId") String nodeId,
         @Param("maxRunTimeMin") int maxRunTimeMin
     );
+
+    // Find RUNNING executions for a partition (for misfire scanner)
+    @Query(value = """
+        SELECT * FROM job_executions
+        WHERE partition_id = :partitionId
+          AND status = 'RUNNING'
+        """, nativeQuery = true)
+    List<JobExecution> findStuckByPartition(@Param("partitionId") int partitionId);
 }
 
