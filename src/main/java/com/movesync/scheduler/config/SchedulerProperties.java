@@ -44,5 +44,8 @@ public class SchedulerProperties {
 
     // Starvation
     private int maxStarvationDelaySec = 300;
+
+    // Outbox
+    private long outboxPollIntervalMs = 1000;
 }
 
