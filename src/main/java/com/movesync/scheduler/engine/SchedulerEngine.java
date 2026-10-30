@@ -125,6 +125,40 @@ public class SchedulerEngine {
                         fairnessQueue.release(job.getTenantId());
                     }
                 }
+
+                // Manual executions are independent of the job's scheduled fire time.
+                // Only the node currently owning the partition can dispatch them.
+                List<JobExecution> manualExecutions = executionRepository.findPendingManualExecutions(
+                    ownedPartitions, properties.getPollBatchSize());
+                Map<UUID, Job> jobsById = new HashMap<>();
+                jobRepository.findAllById(manualExecutions.stream()
+                    .map(JobExecution::getJobId)
+                    .toList()).forEach(job -> jobsById.put(job.getId(), job));
+
+                for (JobExecution execution : manualExecutions) {
+                    Job job = jobsById.get(execution.getJobId());
+                    if (job == null || job.getStatus() == JobStatus.CANCELLED
+                            || job.getStatus() == JobStatus.PAUSED
+                            || tenantService.isTenantPaused(execution.getTenantId())
+                            || !leaseManager.ownsPartition(execution.getPartitionId())) {
+                        continue;
+                    }
+
+                    if (!fairnessQueue.tryAcquire(execution.getTenantId())) {
+                        continue;
+                    }
+
+                    Long fencingToken = leaseManager.getFencingToken(execution.getPartitionId());
+                    if (fencingToken == null) {
+                        fairnessQueue.release(execution.getTenantId());
+                        continue;
+                    }
+
+                    execution.setFencingToken(fencingToken);
+                    execution.setNodeId(properties.getNodeId());
+                    executionRepository.save(execution);
+                    jobsToDispatch.add(Map.entry(job, execution));
+                }
             });
         } catch (Exception e) {
             log.error("Error in poll loop", e);

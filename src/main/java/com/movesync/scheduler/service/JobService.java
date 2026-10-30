@@ -151,9 +151,8 @@ public class JobService {
 
     /**
      * Manually trigger a job (O2).
-     * Creates a new execution with a MANUAL idempotency key.
-     * For RECURRING jobs, also advances next_fire_time to prevent
-     * double-fire of the upcoming scheduled run.
+     * Creates a separate execution with a MANUAL idempotency key. The job's
+     * regular next_fire_time is not changed.
      */
     @Transactional
     public ExecutionResponse manualTrigger(UUID tenantId, UUID jobId) {
@@ -169,33 +168,7 @@ public class JobService {
             throw new SchedulerException("Manual trigger already in progress for job " + jobId);
         }
 
-        // For recurring jobs: advance next_fire_time to avoid double-fire
-        if (job.getScheduleType() == ScheduleType.RECURRING && job.getNextFireTime() != null) {
-            // If the next fire is within 2 minutes, skip it
-            if (job.getNextFireTime().isBefore(now.plusSeconds(120))) {
-                Instant nextAfterSkip = cronResolver.nextFireTime(
-                    job.getCronExpression(),
-                    job.getTimezone() != null ? job.getTimezone() : "UTC",
-                    now
-                );
-                jobRepository.updateNextFireTime(job.getId(), nextAfterSkip, now);
-                log.info("Manual trigger: advanced next fire time for job {} to {}",
-                    jobId, nextAfterSkip);
-            }
-        }
-
         Long fencingToken = leaseManager.getFencingToken(job.getPartitionId());
-        if (fencingToken == null) {
-            // This node doesn't own the partition. Set fire time to now so the owner picks it up.
-            job.setNextFireTime(now);
-            jobRepository.save(job);
-            return ExecutionResponse.builder()
-                .jobId(jobId)
-                .status(ExecutionStatus.PENDING)
-                .scheduledFireTime(now)
-                .build();
-        }
-
         JobExecution execution = JobExecution.builder()
             .jobId(job.getId())
             .tenantId(job.getTenantId())
@@ -203,7 +176,9 @@ public class JobService {
             .idempotencyKey(idempotencyKey)
             .scheduledFireTime(now)
             .status(ExecutionStatus.PENDING)
-            .fencingToken(fencingToken)
+            // A non-owner may accept the request. The partition owner replaces
+            // this placeholder with its current fencing token before dispatch.
+            .fencingToken(fencingToken != null ? fencingToken : 0L)
             .nodeId(properties.getNodeId())
             .build();
         execution = executionRepository.save(execution);

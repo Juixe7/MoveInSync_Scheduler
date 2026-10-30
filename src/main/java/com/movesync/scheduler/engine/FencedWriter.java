@@ -74,15 +74,18 @@ public class FencedWriter {
                 execution.getFireLagMs() != null ? execution.getFireLagMs() : 0))
             .build());
 
-        // Advance next fire time or mark complete
-        if (job.getScheduleType() == ScheduleType.RECURRING) {
-            Instant nextFire = cronResolver.nextFireTime(
-                job.getCronExpression(),
-                job.getTimezone() != null ? job.getTimezone() : "UTC",
-                job.getNextFireTime());
-            jobRepository.updateNextFireTime(job.getId(), nextFire, Instant.now());
-        } else {
-            jobRepository.updateStatus(job.getId(), JobStatus.COMPLETED, Instant.now());
+        // A manual run is additional work; it must not move or consume the
+        // job's regular schedule. Scheduled executions advance it as usual.
+        if (!execution.isManualExecution()) {
+            if (job.getScheduleType() == ScheduleType.RECURRING) {
+                Instant nextFire = cronResolver.nextFireTime(
+                    job.getCronExpression(),
+                    job.getTimezone() != null ? job.getTimezone() : "UTC",
+                    job.getNextFireTime());
+                jobRepository.updateNextFireTime(job.getId(), nextFire, Instant.now());
+            } else {
+                jobRepository.updateStatus(job.getId(), JobStatus.COMPLETED, Instant.now());
+            }
         }
 
         log.info("Job completed: id={} type={} fireLag={}ms",

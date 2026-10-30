@@ -82,6 +82,10 @@ public class JobExecution {
         return jobId.toString() + ":MANUAL:" + triggerTime.toString();
     }
 
+    public boolean isManualExecution() {
+        return idempotencyKey != null && idempotencyKey.contains(":MANUAL:");
+    }
+
     /**
      * Compute fire lag from scheduled vs actual start.
      */

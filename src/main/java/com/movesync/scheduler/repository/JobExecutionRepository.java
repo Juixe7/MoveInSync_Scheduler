@@ -24,6 +24,19 @@ public interface JobExecutionRepository extends JpaRepository<JobExecution, UUID
     // Dead-letter queries for operators
     List<JobExecution> findByTenantIdAndStatus(UUID tenantId, ExecutionStatus status);
 
+    /** Pending manual runs are claimed only by the node owning their partition. */
+    @Query(value = """
+        SELECT * FROM job_executions
+        WHERE partition_id IN (:partitionIds)
+          AND status = 'PENDING'
+          AND idempotency_key LIKE '%:MANUAL:%'
+        ORDER BY created_at ASC
+        LIMIT :limit
+        FOR UPDATE SKIP LOCKED
+        """, nativeQuery = true)
+    List<JobExecution> findPendingManualExecutions(@Param("partitionIds") List<Integer> partitionIds,
+                                                   @Param("limit") int limit);
+
     // The G4 fenced completion write — CRITICAL
     // Returns affected row count: 1 = success, 0 = fencing rejected
     @Modifying
@@ -78,7 +91,8 @@ public interface JobExecutionRepository extends JpaRepository<JobExecution, UUID
     @Query(value = """
         SELECT * FROM job_executions
         WHERE partition_id = :partitionId
-          AND status IN ('RUNNING', 'PENDING')
+          AND (status = 'RUNNING'
+               OR (status = 'PENDING' AND idempotency_key NOT LIKE '%:MANUAL:%'))
         """, nativeQuery = true)
     List<JobExecution> findStuckByPartition(@Param("partitionId") int partitionId);
 
