@@ -113,3 +113,13 @@ logging:
 
 server:
   port: ${SERVER_PORT:8080}
+
+# =====================================================
+# Security & JWT Configuration
+# =====================================================
+security:
+  jwt:
+    # 256-bit base64 secret key (default for demo/evaluation)
+    secret: ${JWT_SECRET:cGxlYXNlQ2hhbmdlVGhpc0luUHJvZHVjdGlvbkFTQVBTZWN1cmVLZXkxMjM0NTY=}
+    expiry-seconds: 86400
+
