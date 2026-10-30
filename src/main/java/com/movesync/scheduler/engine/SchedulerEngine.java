@@ -119,8 +119,9 @@ public class SchedulerEngine {
             try {
                 pool.submit(() -> {
                     try {
-                        int claimed = executionRepository.claimForExecution(execution.getId());
-                        if (claimed == 0) {
+                        Integer claimed = transactionTemplate.execute(status ->
+                            executionRepository.claimForExecution(execution.getId()));
+                        if (claimed == null || claimed == 0) {
                             log.info("Job {} execution was cancelled before firing", job.getId());
                             return;
                         }
@@ -128,6 +129,8 @@ public class SchedulerEngine {
                         execution.setActualStartTime(Instant.now());
                         execution.computeFireLag();
                         executeJob(job, execution);
+                    } catch (Exception e) {
+                        log.error("Error executing job {}", job.getId(), e);
                     } finally {
                         fairnessQueue.release(job.getTenantId());
                     }
