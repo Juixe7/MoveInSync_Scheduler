@@ -41,3 +41,4 @@ class JwtAuthTest {
         assertThat(jwtTokenProvider.validateToken("")).isFalse();
     }
 }
+

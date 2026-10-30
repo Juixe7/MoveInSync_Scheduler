@@ -27,6 +27,12 @@ public class TenantService {
     private final Cache<UUID, String> timezoneCache;
 
     public TenantService(TenantRepository tenantRepository) {
+        this(tenantRepository, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TenantService(TenantRepository tenantRepository,
+                         @org.springframework.beans.factory.annotation.Autowired(required = false) com.movesync.scheduler.metrics.SchedulerMetrics metrics) {
         this.tenantRepository = tenantRepository;
 
         this.statusCache = Caffeine.newBuilder()
@@ -40,6 +46,10 @@ public class TenantService {
             .expireAfterWrite(1, TimeUnit.HOURS)
             .recordStats()
             .build();
+
+        if (metrics != null) {
+            metrics.registerCacheHitRateGauge(() -> statusCache.stats().hitRate());
+        }
     }
 
     /**

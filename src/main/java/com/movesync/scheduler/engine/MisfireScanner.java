@@ -17,7 +17,6 @@ import java.util.List;
 
 @Component
 @Slf4j
-@RequiredArgsConstructor
 public class MisfireScanner {
 
     private final JobRepository jobRepository;
@@ -25,6 +24,30 @@ public class MisfireScanner {
     private final PartitionLeaseRepository leaseRepository;
     private final CronResolver cronResolver;
     private final SchedulerProperties properties;
+    private final com.movesync.scheduler.metrics.SchedulerMetrics metrics;
+
+    public MisfireScanner(JobRepository jobRepository,
+                          JobExecutionRepository executionRepository,
+                          PartitionLeaseRepository leaseRepository,
+                          CronResolver cronResolver,
+                          SchedulerProperties properties) {
+        this(jobRepository, executionRepository, leaseRepository, cronResolver, properties, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public MisfireScanner(JobRepository jobRepository,
+                          JobExecutionRepository executionRepository,
+                          PartitionLeaseRepository leaseRepository,
+                          CronResolver cronResolver,
+                          SchedulerProperties properties,
+                          @org.springframework.beans.factory.annotation.Autowired(required = false) com.movesync.scheduler.metrics.SchedulerMetrics metrics) {
+        this.jobRepository = jobRepository;
+        this.executionRepository = executionRepository;
+        this.leaseRepository = leaseRepository;
+        this.cronResolver = cronResolver;
+        this.properties = properties;
+        this.metrics = metrics;
+    }
 
     /**
      * Scan a set of newly acquired partitions for misfired jobs.
@@ -115,6 +138,9 @@ public class MisfireScanner {
     }
 
     private int applyMisfirePolicy(Job job) {
+        if (metrics != null && job.getMisfirePolicy() != null) {
+            metrics.incrementMisfireRecovered(job.getTenantId(), job.getMisfirePolicy().name());
+        }
         switch (job.getMisfirePolicy()) {
             case FIRE_NOW:
                 // Leave the job as-is. Its next_fire_time is in the past,

@@ -14,12 +14,29 @@ import java.util.concurrent.*;
 
 @Component
 @Slf4j
-@RequiredArgsConstructor
 public class LeaseManager {
 
     private final PartitionLeaseRepository leaseRepository;
     private final SchedulerProperties properties;
     private final TransactionTemplate transactionTemplate;
+    private final com.movesync.scheduler.metrics.SchedulerMetrics metrics;
+
+    public LeaseManager(PartitionLeaseRepository leaseRepository,
+                        SchedulerProperties properties,
+                        TransactionTemplate transactionTemplate) {
+        this(leaseRepository, properties, transactionTemplate, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public LeaseManager(PartitionLeaseRepository leaseRepository,
+                        SchedulerProperties properties,
+                        TransactionTemplate transactionTemplate,
+                        @org.springframework.beans.factory.annotation.Autowired(required = false) com.movesync.scheduler.metrics.SchedulerMetrics metrics) {
+        this.leaseRepository = leaseRepository;
+        this.properties = properties;
+        this.transactionTemplate = transactionTemplate;
+        this.metrics = metrics;
+    }
 
     // In-memory view of what we own — refreshed from DB on every renewal
     private final Set<Integer> ownedPartitions = ConcurrentHashMap.newKeySet();
@@ -47,6 +64,9 @@ public class LeaseManager {
         );
 
         refreshOwnedPartitions();
+        if (metrics != null) {
+            metrics.registerLeasesOwnedGauge(ownedPartitions::size);
+        }
         log.info("Claimed {} partitions: {}", claimed, ownedPartitions);
 
         // Start the renewal loop

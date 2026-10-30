@@ -28,6 +28,28 @@ public class GlobalExceptionHandler {
             .status(403).error("Forbidden").message(ex.getMessage()).path(req.getRequestURI()).build());
     }
 
+    @ExceptionHandler(StaleLeaseException.class)
+    public ResponseEntity<ErrorResponse> handleStaleLease(StaleLeaseException ex, HttpServletRequest req) {
+        log.warn("Stale lease conflict: {}", ex.getMessage());
+        // Safe, generic message without internal partition/token IDs
+        return ResponseEntity.status(409).body(ErrorResponse.builder()
+            .status(409).error("Conflict").message("Lease conflict — please retry later").path(req.getRequestURI()).build());
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleBadRequest(IllegalArgumentException ex, HttpServletRequest req) {
+        log.warn("Bad request: {}", ex.getMessage());
+        return ResponseEntity.status(400).body(ErrorResponse.builder()
+            .status(400).error("Bad Request").message(ex.getMessage()).path(req.getRequestURI()).build());
+    }
+
+    @ExceptionHandler(SchedulerException.class)
+    public ResponseEntity<ErrorResponse> handleSchedulerException(SchedulerException ex, HttpServletRequest req) {
+        log.warn("Scheduler error: {}", ex.getMessage());
+        return ResponseEntity.status(400).body(ErrorResponse.builder()
+            .status(400).error("Bad Request").message(ex.getMessage()).path(req.getRequestURI()).build());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest req) {
         String message = ex.getBindingResult().getFieldErrors().stream()
@@ -46,4 +68,3 @@ public class GlobalExceptionHandler {
             .status(500).error("Internal Error").message("An unexpected error occurred").path(req.getRequestURI()).build());
     }
 }
-
