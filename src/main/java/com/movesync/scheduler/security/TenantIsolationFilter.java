@@ -48,6 +48,30 @@ public class TenantIsolationFilter extends OncePerRequestFilter {
 
                 request.setAttribute(TENANT_ID_ATTRIBUTE, tenantId);
                 MDC.put("tenantId", tenantId.toString());
+
+                // Tenant Isolation Check: verify token tenantId matches requested URL path tenantId
+                String uri = request.getRequestURI();
+                if (uri.startsWith("/api/tenants/")) {
+                    String[] parts = uri.split("/");
+                    if (parts.length >= 4) {
+                        try {
+                            UUID pathTenantId = UUID.fromString(parts[3]);
+                            if (!pathTenantId.equals(tenantId)) {
+                                log.warn("CROSS_TENANT_ACCESS_DENIED: token tenant={} attempted access to path tenant={}",
+                                    tenantId, pathTenantId);
+                                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                                response.setContentType("application/json");
+                                response.getWriter().write(String.format(
+                                    "{\"status\":403,\"error\":\"Forbidden\",\"message\":\"Access denied to tenant %s\"}",
+                                    pathTenantId
+                                ));
+                                return;
+                            }
+                        } catch (IllegalArgumentException ignored) {
+                            // Segment is not a UUID, let standard routing handle it
+                        }
+                    }
+                }
             } catch (Exception e) {
                 log.warn("Failed to set tenant context from JWT: {}", e.getMessage());
             }

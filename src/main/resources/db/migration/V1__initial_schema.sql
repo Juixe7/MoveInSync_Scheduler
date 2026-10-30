@@ -131,3 +131,10 @@ CREATE TABLE outbox_events (
 CREATE INDEX idx_outbox_unpublished ON outbox_events (created_at)
 WHERE
     published = FALSE;
+-- =====================================================
+-- SEED DEMO TENANTS
+-- =====================================================
+INSERT INTO tenants (id, name, timezone) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'Infosys', 'Asia/Kolkata'),
+    ('22222222-2222-2222-2222-222222222222', 'Wipro', 'UTC')
+ON CONFLICT DO NOTHING;
