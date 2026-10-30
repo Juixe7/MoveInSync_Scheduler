@@ -21,17 +21,11 @@ public class LeaseManager {
     private final TransactionTemplate transactionTemplate;
     private final com.movesync.scheduler.metrics.SchedulerMetrics metrics;
 
-    public LeaseManager(PartitionLeaseRepository leaseRepository,
-                        SchedulerProperties properties,
-                        TransactionTemplate transactionTemplate) {
-        this(leaseRepository, properties, transactionTemplate, null);
-    }
-
     @org.springframework.beans.factory.annotation.Autowired
     public LeaseManager(PartitionLeaseRepository leaseRepository,
                         SchedulerProperties properties,
                         TransactionTemplate transactionTemplate,
-                        @org.springframework.beans.factory.annotation.Autowired(required = false) com.movesync.scheduler.metrics.SchedulerMetrics metrics) {
+                        com.movesync.scheduler.metrics.SchedulerMetrics metrics) {
         this.leaseRepository = leaseRepository;
         this.properties = properties;
         this.transactionTemplate = transactionTemplate;
@@ -64,9 +58,7 @@ public class LeaseManager {
         );
 
         refreshOwnedPartitions();
-        if (metrics != null) {
-            metrics.registerLeasesOwnedGauge(ownedPartitions::size);
-        }
+        metrics.registerLeasesOwnedGauge(ownedPartitions::size);
         log.info("Claimed {} partitions: {}", claimed, ownedPartitions);
 
         // Start the renewal loop

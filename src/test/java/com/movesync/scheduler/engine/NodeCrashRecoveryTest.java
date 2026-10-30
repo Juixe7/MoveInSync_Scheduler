@@ -36,6 +36,8 @@ class NodeCrashRecoveryTest {
     private OutboxRepository outboxRepository;
     @Mock
     private CronResolver cronResolver;
+    @Mock
+    private com.movesync.scheduler.metrics.SchedulerMetrics metrics;
 
     private SchedulerProperties properties;
     private MisfireScanner misfireScanner;
@@ -51,14 +53,16 @@ class NodeCrashRecoveryTest {
             executionRepository,
             leaseRepository,
             cronResolver,
-            properties
+            properties,
+            metrics
         );
 
         fencedWriter = new FencedWriter(
             executionRepository,
             jobRepository,
             outboxRepository,
-            cronResolver
+            cronResolver,
+            metrics
         );
     }
 

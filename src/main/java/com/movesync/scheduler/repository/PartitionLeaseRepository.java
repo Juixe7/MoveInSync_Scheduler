@@ -24,7 +24,7 @@ public interface PartitionLeaseRepository extends JpaRepository<PartitionLease, 
         UPDATE partition_leases
         SET node_id = :nodeId,
             fencing_token = fencing_token + 1,
-            lease_expires = NOW() + CAST(:timeoutSec || ' seconds' AS INTERVAL),
+            lease_expires = NOW() + (:timeoutSec * INTERVAL '1 second'),
             acquired_at = NOW(),
             updated_at = NOW()
         WHERE partition_id IN (
@@ -45,7 +45,7 @@ public interface PartitionLeaseRepository extends JpaRepository<PartitionLease, 
     @Modifying
     @Query(value = """
         UPDATE partition_leases
-        SET lease_expires = NOW() + CAST(:timeoutSec || ' seconds' AS INTERVAL),
+        SET lease_expires = NOW() + (:timeoutSec * INTERVAL '1 second'),
             updated_at = NOW()
         WHERE node_id = :nodeId
           AND lease_expires > NOW()

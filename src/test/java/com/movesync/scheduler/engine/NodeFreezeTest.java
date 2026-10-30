@@ -34,6 +34,8 @@ class NodeFreezeTest {
     private OutboxRepository outboxRepository;
     @Mock
     private CronResolver cronResolver;
+    @Mock
+    private com.movesync.scheduler.metrics.SchedulerMetrics metrics;
 
     private FencedWriter fencedWriter;
 
@@ -43,7 +45,8 @@ class NodeFreezeTest {
             executionRepository,
             jobRepository,
             outboxRepository,
-            cronResolver
+            cronResolver,
+            metrics
         );
     }
 
@@ -140,9 +143,9 @@ class NodeFreezeTest {
         when(executionRepository.fencedComplete(eq(execId), eq(ExecutionStatus.DEAD_LETTERED.name()), eq(4L), any(), any()))
             .thenReturn(0);
 
-        boolean deadLetterResult = fencedWriter.deadLetterWithFencing(job, staleExec, "Timeout error");
+        assertThatThrownBy(() -> fencedWriter.deadLetterWithFencing(job, staleExec, "Timeout error"))
+            .isInstanceOf(StaleLeaseException.class);
 
-        assertThat(deadLetterResult).isFalse();
         verify(outboxRepository, never()).save(any());
         verify(jobRepository, never()).updateStatus(any(), any(), any());
     }

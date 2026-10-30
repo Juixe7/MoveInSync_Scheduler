@@ -24,19 +24,12 @@ public class FencedWriter {
     private final CronResolver cronResolver;
     private final SchedulerMetrics metrics;
 
-    public FencedWriter(JobExecutionRepository executionRepository,
-                        JobRepository jobRepository,
-                        OutboxRepository outboxRepository,
-                        CronResolver cronResolver) {
-        this(executionRepository, jobRepository, outboxRepository, cronResolver, null);
-    }
-
     @Autowired
     public FencedWriter(JobExecutionRepository executionRepository,
                         JobRepository jobRepository,
                         OutboxRepository outboxRepository,
                         CronResolver cronResolver,
-                        @Autowired(required = false) SchedulerMetrics metrics) {
+                        SchedulerMetrics metrics) {
         this.executionRepository = executionRepository;
         this.jobRepository = jobRepository;
         this.outboxRepository = outboxRepository;
@@ -65,9 +58,7 @@ public class FencedWriter {
         if (affected == 0) {
             log.warn("FENCING_REJECTED: job={} partition={} token={}",
                 job.getId(), job.getPartitionId(), execution.getFencingToken());
-            if (metrics != null) {
-                metrics.incrementFencingRejected(job.getPartitionId());
-            }
+            metrics.incrementFencingRejected(job.getPartitionId());
             throw new StaleLeaseException(job.getPartitionId(), execution.getFencingToken());
             // Transaction rolls back — no side effects persist
         }
@@ -116,10 +107,8 @@ public class FencedWriter {
         if (affected == 0) {
             log.warn("FENCING_REJECTED on dead-letter: job={} partition={} token={}",
                 job.getId(), job.getPartitionId(), execution.getFencingToken());
-            if (metrics != null) {
-                metrics.incrementFencingRejected(job.getPartitionId());
-            }
-            return false;
+            metrics.incrementFencingRejected(job.getPartitionId());
+            throw new StaleLeaseException(job.getPartitionId(), execution.getFencingToken());
         }
 
         outboxRepository.save(OutboxEvent.builder()
@@ -131,9 +120,7 @@ public class FencedWriter {
                 job.getId(), job.getTenantId(), error))
             .build());
 
-        if (metrics != null) {
-            metrics.incrementDeadLettered(job.getTenantId(), job.getJobType().name());
-        }
+        metrics.incrementDeadLettered(job.getTenantId(), job.getJobType().name());
 
         log.error("Job dead-lettered: id={} attempts={} error={}",
             job.getId(), execution.getAttemptNumber(), error);

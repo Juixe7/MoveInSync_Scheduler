@@ -33,6 +33,8 @@ class MisfireHandlerTest {
     private PartitionLeaseRepository leaseRepository;
     @Mock
     private CronResolver cronResolver;
+    @Mock
+    private com.movesync.scheduler.metrics.SchedulerMetrics metrics;
 
     private SchedulerProperties properties;
     private MisfireScanner misfireScanner;
@@ -45,7 +47,8 @@ class MisfireHandlerTest {
             executionRepository,
             leaseRepository,
             cronResolver,
-            properties
+            properties,
+            metrics
         );
     }
 

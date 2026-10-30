@@ -34,20 +34,6 @@ public class SchedulerEngine {
     private final TransactionTemplate transactionTemplate;
     private final com.movesync.scheduler.metrics.SchedulerMetrics metrics;
 
-    public SchedulerEngine(JobRepository jobRepository,
-                           JobExecutionRepository executionRepository,
-                           LeaseManager leaseManager,
-                           FencedWriter fencedWriter,
-                           FairnessQueue fairnessQueue,
-                           TenantService tenantService,
-                           JobHandlerRegistry handlerRegistry,
-                           RetryCalculator retryCalculator,
-                           SchedulerProperties properties,
-                           TransactionTemplate transactionTemplate) {
-        this(jobRepository, executionRepository, leaseManager, fencedWriter, fairnessQueue, tenantService,
-             handlerRegistry, retryCalculator, properties, transactionTemplate, null);
-    }
-
     @org.springframework.beans.factory.annotation.Autowired
     public SchedulerEngine(JobRepository jobRepository,
                            JobExecutionRepository executionRepository,
@@ -59,7 +45,7 @@ public class SchedulerEngine {
                            RetryCalculator retryCalculator,
                            SchedulerProperties properties,
                            TransactionTemplate transactionTemplate,
-                           @org.springframework.beans.factory.annotation.Autowired(required = false) com.movesync.scheduler.metrics.SchedulerMetrics metrics) {
+                           com.movesync.scheduler.metrics.SchedulerMetrics metrics) {
         this.jobRepository = jobRepository;
         this.executionRepository = executionRepository;
         this.leaseManager = leaseManager;
@@ -164,10 +150,8 @@ public class SchedulerEngine {
                             log.info("Job {} execution was cancelled before firing", job.getId());
                             return;
                         }
-                        execution.setStatus(ExecutionStatus.RUNNING);
-                        execution.setActualStartTime(Instant.now());
-                        execution.computeFireLag();
-                        if (metrics != null && execution.getFireLagMs() != null) {
+                        execution.markRunning(Instant.now());
+                        if (execution.getFireLagMs() != null) {
                             metrics.recordFireLag(execution.getFireLagMs());
                         }
                         executeJob(job, execution);
@@ -251,9 +235,7 @@ public class SchedulerEngine {
 
             // Fenced completion via FencedWriter
             fencedWriter.completeWithFencing(job, execution, null);
-            if (metrics != null) {
-                metrics.incrementJobsFired(job.getTenantId(), job.getJobType().name(), ExecutionStatus.COMPLETED.name());
-            }
+            metrics.incrementJobsFired(job.getTenantId(), job.getJobType().name(), ExecutionStatus.COMPLETED.name());
 
         } catch (StaleLeaseException sle) {
             log.warn("Execution abandoned due to stale lease: job={} partition={}",
@@ -267,9 +249,7 @@ public class SchedulerEngine {
         boolean isNonRetryable = e instanceof com.movesync.scheduler.exception.NonRetryableException;
 
         if (!isNonRetryable && retryCalculator.shouldRetry(execution.getAttemptNumber(), job.getMaxRetries())) {
-            if (metrics != null) {
-                metrics.incrementRetries(job.getTenantId());
-            }
+            metrics.incrementRetries(job.getTenantId());
             // Retry
             long backoff = retryCalculator.computeBackoffMs(execution.getAttemptNumber());
             transactionTemplate.executeWithoutResult(txStatus -> {
@@ -296,12 +276,15 @@ public class SchedulerEngine {
             });
         } else {
             // Dead-letter via FencedWriter
-            fencedWriter.deadLetterWithFencing(job, execution, e.getClass().getSimpleName() + ": " + e.getMessage());
-            if (metrics != null) {
+            try {
+                fencedWriter.deadLetterWithFencing(job, execution, e.getClass().getSimpleName() + ": " + e.getMessage());
                 metrics.incrementDeadLettered(job.getTenantId(), job.getJobType().name());
+                log.error("Job {} dead-lettered after {} attempts: {}",
+                    job.getId(), execution.getAttemptNumber(), e.getMessage());
+            } catch (StaleLeaseException sle) {
+                log.warn("Dead-letter abandoned due to stale lease: job={} partition={}",
+                    job.getId(), job.getPartitionId());
             }
-            log.error("Job {} dead-lettered after {} attempts: {}",
-                job.getId(), execution.getAttemptNumber(), e.getMessage());
         }
     }
 

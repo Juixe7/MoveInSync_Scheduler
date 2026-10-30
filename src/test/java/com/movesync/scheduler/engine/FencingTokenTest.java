@@ -32,12 +32,14 @@ class FencingTokenTest {
     private OutboxRepository outboxRepository;
     @Mock
     private CronResolver cronResolver;
+    @Mock
+    private com.movesync.scheduler.metrics.SchedulerMetrics metrics;
 
     private FencedWriter fencedWriter;
 
     @BeforeEach
     void setUp() {
-        fencedWriter = new FencedWriter(executionRepository, jobRepository, outboxRepository, cronResolver);
+        fencedWriter = new FencedWriter(executionRepository, jobRepository, outboxRepository, cronResolver, metrics);
     }
 
     @Test
@@ -134,9 +136,9 @@ class FencingTokenTest {
         when(executionRepository.fencedComplete(eq(execId), eq(ExecutionStatus.DEAD_LETTERED.name()), eq(1L), any(), eq("Timeout")))
             .thenReturn(0);
 
-        boolean result = fencedWriter.deadLetterWithFencing(job, execution, "Timeout");
+        assertThatThrownBy(() -> fencedWriter.deadLetterWithFencing(job, execution, "Timeout"))
+            .isInstanceOf(StaleLeaseException.class);
 
-        assertThat(result).isFalse();
         verifyNoInteractions(outboxRepository);
     }
 }

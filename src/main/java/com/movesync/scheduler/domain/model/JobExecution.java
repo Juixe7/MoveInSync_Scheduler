@@ -90,5 +90,62 @@ public class JobExecution {
             this.fireLagMs = actualStartTime.toEpochMilli() - scheduledFireTime.toEpochMilli();
         }
     }
+
+    public void markRunning(Instant now) {
+        if (this.status != ExecutionStatus.PENDING) {
+            throw new IllegalStateException(
+                "Cannot transition from " + this.status + " to RUNNING");
+        }
+        this.status = ExecutionStatus.RUNNING;
+        this.actualStartTime = now;
+        computeFireLag();
+    }
+
+    public void markCompleted(Instant now) {
+        if (this.status != ExecutionStatus.RUNNING) {
+            throw new IllegalStateException(
+                "Cannot transition from " + this.status + " to COMPLETED");
+        }
+        this.status = ExecutionStatus.COMPLETED;
+        this.completedAt = now;
+    }
+
+    public void markFailed(String error) {
+        if (this.status != ExecutionStatus.RUNNING && this.status != ExecutionStatus.RETRYING) {
+            throw new IllegalStateException(
+                "Cannot transition from " + this.status + " to FAILED");
+        }
+        this.status = ExecutionStatus.FAILED;
+        this.errorMessage = error;
+    }
+
+    public void markRetrying(String error) {
+        if (this.status != ExecutionStatus.RUNNING && this.status != ExecutionStatus.FAILED) {
+            throw new IllegalStateException(
+                "Cannot transition from " + this.status + " to RETRYING");
+        }
+        this.status = ExecutionStatus.RETRYING;
+        this.attemptNumber++;
+        this.errorMessage = error;
+    }
+
+    public void markDeadLettered(String error) {
+        if (this.status.isTerminal()) {
+            throw new IllegalStateException(
+                "Cannot transition from terminal status " + this.status + " to DEAD_LETTERED");
+        }
+        this.status = ExecutionStatus.DEAD_LETTERED;
+        this.errorMessage = error;
+        this.completedAt = Instant.now();
+    }
+
+    public void markCancelledBeforeExecution() {
+        if (this.status != ExecutionStatus.PENDING) {
+            throw new IllegalStateException(
+                "Cannot cancel: status is " + this.status + ", expected PENDING");
+        }
+        this.status = ExecutionStatus.CANCELLED_BEFORE_EXECUTION;
+        this.completedAt = Instant.now();
+    }
 }
 

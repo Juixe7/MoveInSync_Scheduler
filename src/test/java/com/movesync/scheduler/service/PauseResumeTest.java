@@ -21,12 +21,14 @@ class PauseResumeTest {
 
     @Mock
     private TenantRepository tenantRepository;
+    @Mock
+    private com.movesync.scheduler.metrics.SchedulerMetrics metrics;
 
     private TenantService tenantService;
 
     @BeforeEach
     void setUp() {
-        tenantService = new TenantService(tenantRepository);
+        tenantService = new TenantService(tenantRepository, metrics);
     }
 
     @Test
