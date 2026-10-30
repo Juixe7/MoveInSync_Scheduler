@@ -108,3 +108,4 @@ docker compose exec postgres psql -U scheduler -d scheduler_db -c "SELECT count(
 
 Write-Host "`n--- 5. Fencing Rejections in Node-3 Logs ---" -ForegroundColor Yellow
 docker compose logs scheduler-node3 | Select-String "FENCING_REJECTED" | Select-Object -First 5
+
