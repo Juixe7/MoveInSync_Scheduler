@@ -3,6 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
+    command: "postgres -c max_connections=300"
     environment:
       POSTGRES_DB: scheduler_db
       POSTGRES_USER: scheduler
@@ -48,6 +49,11 @@ services:
       DB_USER: scheduler
       DB_PASSWORD: scheduler_pass
       KAFKA_BOOTSTRAP: kafka:9092
+      SCHEDULER_POLL_BATCH_SIZE: 150
+      SCHEDULER_POLL_INTERVAL_MS: 200
+      SCHEDULER_WORKER_POOL_SIZE: 50
+      SCHEDULER_REBALANCE_COOLDOWN_SEC: 5
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 60
     ports:
       - "8081:8080"
     depends_on:
@@ -67,6 +73,11 @@ services:
       DB_USER: scheduler
       DB_PASSWORD: scheduler_pass
       KAFKA_BOOTSTRAP: kafka:9092
+      SCHEDULER_POLL_BATCH_SIZE: 150
+      SCHEDULER_POLL_INTERVAL_MS: 200
+      SCHEDULER_WORKER_POOL_SIZE: 50
+      SCHEDULER_REBALANCE_COOLDOWN_SEC: 5
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 60
     ports:
       - "8082:8080"
     depends_on:
@@ -86,6 +97,11 @@ services:
       DB_USER: scheduler
       DB_PASSWORD: scheduler_pass
       KAFKA_BOOTSTRAP: kafka:9092
+      SCHEDULER_POLL_BATCH_SIZE: 150
+      SCHEDULER_POLL_INTERVAL_MS: 200
+      SCHEDULER_WORKER_POOL_SIZE: 50
+      SCHEDULER_REBALANCE_COOLDOWN_SEC: 5
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 60
     ports:
       - "8083:8080"
     depends_on:
