@@ -21,7 +21,14 @@ public interface JobRepository extends JpaRepository<Job, UUID> {
         WHERE partition_id IN (:partitionIds)
           AND status = 'ACTIVE'
           AND next_fire_time <= NOW()
-        ORDER BY priority ASC, next_fire_time ASC
+        ORDER BY
+          CASE priority
+            WHEN 'CRITICAL' THEN 0
+            WHEN 'HIGH' THEN 1
+            WHEN 'NORMAL' THEN 2
+            WHEN 'LOW' THEN 3
+          END ASC,
+          next_fire_time ASC
         LIMIT :limit
         FOR UPDATE SKIP LOCKED
         """, nativeQuery = true)

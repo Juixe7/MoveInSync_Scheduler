@@ -8,6 +8,7 @@ import com.movesync.scheduler.handler.JobHandler;
 import com.movesync.scheduler.handler.JobHandlerRegistry;
 import com.movesync.scheduler.repository.JobExecutionRepository;
 import com.movesync.scheduler.repository.JobRepository;
+import com.movesync.scheduler.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -26,6 +27,8 @@ public class SchedulerEngine {
     private final JobExecutionRepository executionRepository;
     private final LeaseManager leaseManager;
     private final FencedWriter fencedWriter;
+    private final FairnessQueue fairnessQueue;
+    private final TenantService tenantService;
     private final JobHandlerRegistry handlerRegistry;
     private final RetryCalculator retryCalculator;
     private final SchedulerProperties properties;
@@ -72,14 +75,37 @@ public class SchedulerEngine {
                 );
 
                 for (Job job : dueJobs) {
+                    // Check 1: Is tenant paused? (uses cache, zero DB hit)
+                    if (tenantService.isTenantPaused(job.getTenantId())) {
+                        log.debug("Tenant {} is paused, skipping job {}", job.getTenantId(), job.getId());
+                        continue;
+                    }
+
+                    // Check 2: Still own this partition?
+                    if (!leaseManager.ownsPartition(job.getPartitionId())) {
+                        log.debug("No longer own partition {}, skipping job {}", job.getPartitionId(), job.getId());
+                        continue;
+                    }
+
+                    // Check 3: Fairness — tenant at capacity?
+                    if (!fairnessQueue.tryAcquire(job.getTenantId())) {
+                        log.debug("Tenant {} at concurrency cap, deferring job {}", job.getTenantId(), job.getId());
+                        continue;
+                    }
+
                     JobExecution execution = prepareJobExecution(job);
                     if (execution != null) {
                         jobsToDispatch.add(Map.entry(job, execution));
+                    } else {
+                        fairnessQueue.release(job.getTenantId());
                     }
                 }
             });
         } catch (Exception e) {
             log.error("Error in poll loop", e);
+            for (Map.Entry<Job, JobExecution> entry : jobsToDispatch) {
+                fairnessQueue.release(entry.getKey().getTenantId());
+            }
             return;
         }
 
@@ -90,7 +116,18 @@ public class SchedulerEngine {
             ExecutorService pool = (job.getPriority() == Priority.CRITICAL)
                 ? criticalPool : workerPool;
 
-            pool.submit(() -> executeJob(job, execution));
+            try {
+                pool.submit(() -> {
+                    try {
+                        executeJob(job, execution);
+                    } finally {
+                        fairnessQueue.release(job.getTenantId());
+                    }
+                });
+            } catch (Exception e) {
+                fairnessQueue.release(job.getTenantId());
+                log.error("Failed to submit job {} to worker pool", job.getId(), e);
+            }
         }
     }
 
