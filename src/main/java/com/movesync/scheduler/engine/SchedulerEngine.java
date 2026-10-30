@@ -13,6 +13,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.*;
@@ -31,6 +32,7 @@ public class SchedulerEngine {
     private final CronResolver cronResolver;
     private final RetryCalculator retryCalculator;
     private final SchedulerProperties properties;
+    private final TransactionTemplate transactionTemplate;
 
     private ExecutorService workerPool;
     private ExecutorService criticalPool;
@@ -50,8 +52,8 @@ public class SchedulerEngine {
         criticalPool = Executors.newFixedThreadPool(properties.getCriticalPoolSize());
         mainLoop = Executors.newSingleThreadScheduledExecutor();
 
-        // Phase 1: claim all partitions
-        claimAllPartitions();
+        // Phase 1: claim all partitions inside transaction
+        transactionTemplate.executeWithoutResult(status -> claimAllPartitions());
 
         // Start the poll loop
         running = true;
@@ -83,21 +85,42 @@ public class SchedulerEngine {
     private void pollAndExecute() {
         if (!running || ownedPartitions == null || ownedPartitions.isEmpty()) return;
 
-        try {
-            List<Job> dueJobs = jobRepository.findDueJobs(
-                ownedPartitions,
-                properties.getPollBatchSize()
-            );
+        List<Map.Entry<Job, JobExecution>> jobsToDispatch = new ArrayList<>();
 
-            for (Job job : dueJobs) {
-                processJob(job);
-            }
+        try {
+            transactionTemplate.executeWithoutResult(txStatus -> {
+                // Keep leases fresh in single-node mode until LeaseManager in Phase 2
+                leaseRepository.renewLeases(properties.getNodeId(), properties.getLeaseTimeoutSec());
+
+                List<Job> dueJobs = jobRepository.findDueJobs(
+                    ownedPartitions,
+                    properties.getPollBatchSize()
+                );
+
+                for (Job job : dueJobs) {
+                    JobExecution execution = prepareJobExecution(job);
+                    if (execution != null) {
+                        jobsToDispatch.add(Map.entry(job, execution));
+                    }
+                }
+            });
         } catch (Exception e) {
             log.error("Error in poll loop", e);
+            return;
+        }
+
+        // Dispatch outside the transaction so the execution row is committed and visible to worker threads
+        for (Map.Entry<Job, JobExecution> entry : jobsToDispatch) {
+            Job job = entry.getKey();
+            JobExecution execution = entry.getValue();
+            ExecutorService pool = (job.getPriority() == Priority.CRITICAL)
+                ? criticalPool : workerPool;
+
+            pool.submit(() -> executeJob(job, execution));
         }
     }
 
-    private void processJob(Job job) {
+    private JobExecution prepareJobExecution(Job job) {
         try {
             // Get fencing token for this partition
             Long fencingToken = leaseRepository.getFencingToken(
@@ -105,7 +128,7 @@ public class SchedulerEngine {
             if (fencingToken == null) {
                 log.warn("No lease for partition {}, skipping job {}",
                     job.getPartitionId(), job.getId());
-                return;
+                return null;
             }
 
             // Create execution record (idempotency check)
@@ -115,7 +138,7 @@ public class SchedulerEngine {
             if (executionRepository.existsByIdempotencyKey(idempotencyKey)) {
                 log.debug("Job {} already has execution for this fire time, skipping",
                     job.getId());
-                return;
+                return null;
             }
 
             JobExecution execution = JobExecution.builder()
@@ -130,16 +153,11 @@ public class SchedulerEngine {
                 .nodeId(properties.getNodeId())
                 .build();
             execution.computeFireLag();
-            executionRepository.save(execution);
-
-            // Dispatch to appropriate pool
-            ExecutorService pool = (job.getPriority() == Priority.CRITICAL)
-                ? criticalPool : workerPool;
-
-            pool.submit(() -> executeJob(job, execution));
+            return executionRepository.save(execution);
 
         } catch (Exception e) {
-            log.error("Error processing job {}: {}", job.getId(), e.getMessage());
+            log.error("Error preparing job execution {}: {}", job.getId(), e.getMessage());
+            return null;
         }
     }
 
@@ -159,63 +177,65 @@ public class SchedulerEngine {
         }
     }
 
-    @Transactional
     public void completeExecution(Job job, JobExecution execution) {
-        // G4: fenced write
-        int affected = executionRepository.fencedComplete(
-            execution.getId(),
-            ExecutionStatus.COMPLETED.name(),
-            execution.getFencingToken(),
-            null,  // result
-            null   // errorMessage
-        );
+        transactionTemplate.executeWithoutResult(txStatus -> {
+            // G4: fenced write
+            int affected = executionRepository.fencedComplete(
+                execution.getId(),
+                ExecutionStatus.COMPLETED.name(),
+                execution.getFencingToken(),
+                null,  // result
+                null   // errorMessage
+            );
 
-        if (affected == 0) {
-            log.warn("FENCING_REJECTED: job={} partition={} token={}",
-                job.getId(), job.getPartitionId(), execution.getFencingToken());
-            return; // stale — another node completed this
-        }
+            if (affected == 0) {
+                log.warn("FENCING_REJECTED: job={} partition={} token={}",
+                    job.getId(), job.getPartitionId(), execution.getFencingToken());
+                return; // stale — another node completed this
+            }
 
-        // Write outbox event (same transaction)
-        outboxRepository.save(OutboxEvent.builder()
-            .aggregateType("JOB")
-            .aggregateId(job.getId())
-            .eventType("JOB_COMPLETED")
-            .payload(String.format(
-                "{\"jobId\":\"%s\",\"tenantId\":\"%s\",\"fireLagMs\":%d}",
-                job.getId(), job.getTenantId(),
-                execution.getFireLagMs() != null ? execution.getFireLagMs() : 0))
-            .build());
+            // Write outbox event (same transaction)
+            outboxRepository.save(OutboxEvent.builder()
+                .aggregateType("JOB")
+                .aggregateId(job.getId())
+                .eventType("JOB_COMPLETED")
+                .payload(String.format(
+                    "{\"jobId\":\"%s\",\"tenantId\":\"%s\",\"fireLagMs\":%d}",
+                    job.getId(), job.getTenantId(),
+                    execution.getFireLagMs() != null ? execution.getFireLagMs() : 0))
+                .build());
 
-        // Advance next fire time for recurring, or mark complete for one-off
-        if (job.getScheduleType() == ScheduleType.RECURRING) {
-            Instant nextFire = cronResolver.nextFireTime(
-                job.getCronExpression(),
-                job.getTimezone() != null ? job.getTimezone() : "UTC",
-                job.getNextFireTime());
-            jobRepository.updateNextFireTime(job.getId(), nextFire, Instant.now());
-        } else {
-            jobRepository.updateStatus(job.getId(), JobStatus.COMPLETED, Instant.now());
-        }
+            // Advance next fire time for recurring, or mark complete for one-off
+            if (job.getScheduleType() == ScheduleType.RECURRING) {
+                Instant nextFire = cronResolver.nextFireTime(
+                    job.getCronExpression(),
+                    job.getTimezone() != null ? job.getTimezone() : "UTC",
+                    job.getNextFireTime());
+                jobRepository.updateNextFireTime(job.getId(), nextFire, Instant.now());
+            } else {
+                jobRepository.updateStatus(job.getId(), JobStatus.COMPLETED, Instant.now());
+            }
 
-        log.info("Job completed: id={} type={} fireLag={}ms",
-            job.getId(), job.getJobType(),
-            execution.getFireLagMs());
+            log.info("Job completed: id={} type={} fireLag={}ms",
+                job.getId(), job.getJobType(),
+                execution.getFireLagMs());
+        });
     }
 
-    @Transactional
     public void handleFailure(Job job, JobExecution execution, Exception e) {
         boolean isNonRetryable = e instanceof com.movesync.scheduler.exception.NonRetryableException;
 
         if (!isNonRetryable && retryCalculator.shouldRetry(execution.getAttemptNumber(), job.getMaxRetries())) {
             // Retry
             long backoff = retryCalculator.computeBackoffMs(execution.getAttemptNumber());
-            executionRepository.updateForRetry(
-                execution.getId(),
-                ExecutionStatus.RETRYING,
-                execution.getAttemptNumber() + 1,
-                e.getClass().getSimpleName() + ": " + e.getMessage()
-            );
+            transactionTemplate.executeWithoutResult(txStatus -> {
+                executionRepository.updateForRetry(
+                    execution.getId(),
+                    ExecutionStatus.RETRYING,
+                    execution.getAttemptNumber() + 1,
+                    e.getClass().getSimpleName() + ": " + e.getMessage()
+                );
+            });
 
             log.warn("Job {} failed (attempt {}), retrying in {}ms: {}",
                 job.getId(), execution.getAttemptNumber(), backoff, e.getMessage());
@@ -232,22 +252,24 @@ public class SchedulerEngine {
             });
         } else {
             // Dead-letter
-            executionRepository.fencedComplete(
-                execution.getId(),
-                ExecutionStatus.DEAD_LETTERED.name(),
-                execution.getFencingToken(),
-                null,
-                e.getClass().getSimpleName() + ": " + e.getMessage()
-            );
+            transactionTemplate.executeWithoutResult(txStatus -> {
+                executionRepository.fencedComplete(
+                    execution.getId(),
+                    ExecutionStatus.DEAD_LETTERED.name(),
+                    execution.getFencingToken(),
+                    null,
+                    e.getClass().getSimpleName() + ": " + e.getMessage()
+                );
 
-            outboxRepository.save(OutboxEvent.builder()
-                .aggregateType("JOB")
-                .aggregateId(job.getId())
-                .eventType("JOB_DEAD_LETTERED")
-                .payload(String.format(
-                    "{\"jobId\":\"%s\",\"tenantId\":\"%s\",\"error\":\"%s\"}",
-                    job.getId(), job.getTenantId(), e.getMessage()))
-                .build());
+                outboxRepository.save(OutboxEvent.builder()
+                    .aggregateType("JOB")
+                    .aggregateId(job.getId())
+                    .eventType("JOB_DEAD_LETTERED")
+                    .payload(String.format(
+                        "{\"jobId\":\"%s\",\"tenantId\":\"%s\",\"error\":\"%s\"}",
+                        job.getId(), job.getTenantId(), e.getMessage()))
+                    .build());
+            });
 
             log.error("Job {} dead-lettered after {} attempts: {}",
                 job.getId(), execution.getAttemptNumber(), e.getMessage());
@@ -255,7 +277,6 @@ public class SchedulerEngine {
     }
 
     // Graceful shutdown
-    @Transactional
     public void stop() {
         running = false;
         mainLoop.shutdown();
@@ -267,7 +288,9 @@ public class SchedulerEngine {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        leaseRepository.releaseAllPartitions(properties.getNodeId());
+        transactionTemplate.executeWithoutResult(txStatus -> {
+            leaseRepository.releaseAllPartitions(properties.getNodeId());
+        });
         log.info("Scheduler engine stopped");
     }
 }

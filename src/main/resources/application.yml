@@ -23,9 +23,9 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false  # ISO-8601 strings, not epoch millis
+  # jackson:
+  #   serialization:
+  #     write-dates-as-timestamps: false  # ISO-8601 strings, not epoch millis
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
