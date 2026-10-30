@@ -1,5 +1,6 @@
 package com.movesync.scheduler.api;
 
+import com.movesync.scheduler.api.dto.TenantResponse;
 import com.movesync.scheduler.domain.model.Tenant;
 import com.movesync.scheduler.repository.TenantRepository;
 import com.movesync.scheduler.service.TenantService;
@@ -31,9 +32,9 @@ public class TenantController {
     }
 
     @GetMapping("/{tenantId}")
-    public ResponseEntity<Tenant> getTenant(@PathVariable UUID tenantId) {
+    public ResponseEntity<TenantResponse> getTenant(@PathVariable UUID tenantId) {
         return tenantRepository.findById(tenantId)
-            .map(ResponseEntity::ok)
+            .map(t -> ResponseEntity.ok(TenantResponse.from(t)))
             .orElse(ResponseEntity.notFound().build());
     }
 }
