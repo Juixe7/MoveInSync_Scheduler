@@ -1162,4 +1162,4 @@ During the run:
 | Failure-mode table | ✅ (Section 6 + `DESIGN_NOTE.md`) |
 | `docker compose up` | ✅ (Postgres + Kafka + 3 nodes) |
 | Meaningful commit history | ✅ (~20 commits, conventional format) |
-| Demo video | 🔲 (Phase 5) |
+| Demo video | ✅ ([Google Drive Link](https://drive.google.com/drive/folders/1EuAMylkT7YqvRZ7Ju1IkQQkO2z2Y0kBC)) |

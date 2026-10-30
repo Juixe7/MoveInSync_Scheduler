@@ -6,6 +6,12 @@ Designed to coordinate hundreds of thousands of daily time-critical jobs (roster
 
 ---
 
+## Demo Video
+
+- **Video Walkthrough (Google Drive):** [MoveInSync Scheduler Demo & Chaos Kill Test](https://drive.google.com/drive/folders/1EuAMylkT7YqvRZ7Ju1IkQQkO2z2Y0kBC)
+
+---
+
 ## Architecture Overview
 
 ```
@@ -176,6 +182,7 @@ $env:JAVA_HOME = "C:\Users\Asus\.jdks\temurin-21"
 
 ## In-Depth Documentation
 
+- [Demo Walkthrough & Failover Video](https://drive.google.com/drive/folders/1EuAMylkT7YqvRZ7Ju1IkQQkO2z2Y0kBC) — complete walkthrough demonstrating job execution, tenant isolation, and live node kill failover.
 - [Detailed Architecture & Fencing Explanation](file:///C:/Users/Asus/Desktop/scheduler/EXPLANATION.md) — complete deep-dive covering failure modes, zombie fencing diagram, Two Generals Problem, cancel race, and Big-O tables.
 - [Design Decisions Note](file:///C:/Users/Asus/Desktop/scheduler/DESIGN_NOTE.md) — why `hash(jobId)` was chosen over `hash(tenantId)`, lease design, and outbox pattern.
 - [Engineering Trade-Offs](file:///C:/Users/Asus/Desktop/scheduler/TRADE_OFFS.md) — explicit documentation of intentional trade-offs and operational limits.
