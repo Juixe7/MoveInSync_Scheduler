@@ -156,9 +156,28 @@ public class SchedulerEngine {
             String idempotencyKey = JobExecution.buildIdempotencyKey(
                 job.getId(), job.getNextFireTime());
 
-            if (executionRepository.existsByIdempotencyKey(idempotencyKey)) {
-                log.debug("Job {} already has execution for this fire time, skipping",
-                    job.getId());
+            Optional<JobExecution> existingOpt = executionRepository.findByIdempotencyKey(idempotencyKey);
+            if (existingOpt.isPresent()) {
+                JobExecution existing = existingOpt.get();
+                if (existing.getStatus() == ExecutionStatus.COMPLETED) {
+                    return null;
+                }
+                if (existing.getStatus() == ExecutionStatus.CANCELLED_BEFORE_EXECUTION
+                        || existing.getStatus() == ExecutionStatus.DEAD_LETTERED) {
+                    return null;
+                }
+                // Check if this execution belonged to a crashed node or has a stale fencing token
+                if (existing.getFencingToken() < fencingToken) {
+                    log.info("Recovering orphaned execution for job {} from dead node {} (token {} -> {})",
+                        job.getId(), existing.getNodeId(), existing.getFencingToken(), fencingToken);
+                    existing.setNodeId(properties.getNodeId());
+                    existing.setFencingToken(fencingToken);
+                    existing.setStatus(ExecutionStatus.PENDING);
+                    existing.setAttemptNumber(existing.getAttemptNumber() + 1);
+                    return executionRepository.save(existing);
+                }
+                // Still being processed with active fencing token
+                log.debug("Job {} already active with current fencing token, skipping", job.getId());
                 return null;
             }
 

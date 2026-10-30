@@ -74,11 +74,11 @@ public interface JobExecutionRepository extends JpaRepository<JobExecution, UUID
         @Param("maxRunTimeMin") int maxRunTimeMin
     );
 
-    // Find RUNNING executions for a partition (for misfire scanner)
+    // Find RUNNING or PENDING executions for a partition (for misfire scanner)
     @Query(value = """
         SELECT * FROM job_executions
         WHERE partition_id = :partitionId
-          AND status = 'RUNNING'
+          AND status IN ('RUNNING', 'PENDING')
         """, nativeQuery = true)
     List<JobExecution> findStuckByPartition(@Param("partitionId") int partitionId);
 
