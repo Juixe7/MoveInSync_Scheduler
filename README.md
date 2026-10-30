@@ -100,6 +100,26 @@ curl -X POST http://localhost:8080/api/jobs \
 
 ---
 
+## API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/tenants/{tenantId}/jobs` | Create a job |
+| GET | `/api/tenants/{tenantId}/jobs` | List tenant's jobs |
+| GET | `/api/tenants/{tenantId}/jobs/{jobId}` | Get job details |
+| POST | `/api/tenants/{tenantId}/jobs/{jobId}/cancel` | Cancel a job |
+| POST | `/api/tenants/{tenantId}/jobs/{jobId}/trigger` | Manual trigger |
+| GET | `/api/tenants/{tenantId}/jobs/{jobId}/next-fire-times` | Next N fire times |
+| POST | `/api/tenants/{tenantId}/pause` | Pause all tenant jobs |
+| POST | `/api/tenants/{tenantId}/resume` | Resume tenant jobs |
+| GET | `/api/tenants/{tenantId}/dead-letter` | List dead-lettered runs |
+| POST | `/api/tenants/{tenantId}/dead-letter/{execId}/replay` | Replay a dead-letter |
+| GET | `/actuator/health` | Health check |
+| GET | `/actuator/prometheus` | Prometheus metrics |
+| GET | `/swagger-ui.html` | Swagger UI |
+
+---
+
 ## How to Run
 
 ### Option 1: 3-Node Cluster via Docker Compose (Recommended)
