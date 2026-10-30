@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -40,10 +41,21 @@ public class JobController {
     }
 
     @PostMapping("/{jobId}/cancel")
-    public ResponseEntity<JobResponse> cancelJob(
+    public ResponseEntity<?> cancelJob(
             @PathVariable UUID tenantId,
             @PathVariable UUID jobId) {
-        return ResponseEntity.ok(jobService.cancelJob(tenantId, jobId));
+        boolean cancelledExecution = jobService.cancelPendingExecution(tenantId, jobId);
+        return ResponseEntity.ok(Map.of(
+            "jobStatus", "CANCELLED",
+            "pendingExecutionCancelled", cancelledExecution
+        ));
+    }
+
+    @PostMapping("/{jobId}/trigger")
+    public ResponseEntity<ExecutionResponse> manualTrigger(
+            @PathVariable UUID tenantId,
+            @PathVariable UUID jobId) {
+        return ResponseEntity.ok(jobService.manualTrigger(tenantId, jobId));
     }
 
     @GetMapping("/{jobId}/next-fire-times")

@@ -81,5 +81,35 @@ public interface JobExecutionRepository extends JpaRepository<JobExecution, UUID
           AND status = 'RUNNING'
         """, nativeQuery = true)
     List<JobExecution> findStuckByPartition(@Param("partitionId") int partitionId);
+
+    /**
+     * G9: Atomically cancel a PENDING execution.
+     * Uses the PENDING status as the lock condition.
+     * If another thread already changed status to RUNNING, this returns 0.
+     */
+    @Modifying
+    @Query(value = """
+        UPDATE job_executions
+        SET status = 'CANCELLED_BEFORE_EXECUTION',
+            completed_at = NOW(),
+            error_message = 'Cancelled by API'
+        WHERE job_id = :jobId
+          AND status = 'PENDING'
+        """, nativeQuery = true)
+    int cancelPendingExecution(@Param("jobId") UUID jobId);
+
+    /**
+     * G9: Atomically claim a PENDING execution for firing.
+     * Returns 0 if already cancelled or running.
+     */
+    @Modifying
+    @Query(value = """
+        UPDATE job_executions
+        SET status = 'RUNNING',
+            actual_start_time = NOW()
+        WHERE id = :execId
+          AND status = 'PENDING'
+        """, nativeQuery = true)
+    int claimForExecution(@Param("execId") UUID execId);
 }
 

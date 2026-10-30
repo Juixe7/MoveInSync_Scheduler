@@ -119,6 +119,14 @@ public class SchedulerEngine {
             try {
                 pool.submit(() -> {
                     try {
+                        int claimed = executionRepository.claimForExecution(execution.getId());
+                        if (claimed == 0) {
+                            log.info("Job {} execution was cancelled before firing", job.getId());
+                            return;
+                        }
+                        execution.setStatus(ExecutionStatus.RUNNING);
+                        execution.setActualStartTime(Instant.now());
+                        execution.computeFireLag();
                         executeJob(job, execution);
                     } finally {
                         fairnessQueue.release(job.getTenantId());
@@ -157,12 +165,10 @@ public class SchedulerEngine {
                 .partitionId(job.getPartitionId())
                 .idempotencyKey(idempotencyKey)
                 .scheduledFireTime(job.getNextFireTime())
-                .actualStartTime(Instant.now())
-                .status(ExecutionStatus.RUNNING)
+                .status(ExecutionStatus.PENDING)
                 .fencingToken(fencingToken)
                 .nodeId(properties.getNodeId())
                 .build();
-            execution.computeFireLag();
             return executionRepository.save(execution);
 
         } catch (Exception e) {
