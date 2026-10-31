@@ -45,6 +45,7 @@ public class MisfireScanner {
      * Scan a set of newly acquired partitions for misfired jobs.
      * Called by PartitionRebalancer after claiming orphaned partitions.
      */
+    @Transactional
     public void scanPartitions(List<Integer> partitionIds) {
         log.info("Misfire scan starting for partitions: {}", partitionIds);
         int handled = 0;

@@ -291,12 +291,12 @@ public class SchedulerEngine {
     // Graceful shutdown
     public void stop() {
         running = false;
-        mainLoop.shutdown();
-        workerPool.shutdown();
-        criticalPool.shutdown();
+        if (mainLoop != null) mainLoop.shutdown();
+        if (workerPool != null) workerPool.shutdown();
+        if (criticalPool != null) criticalPool.shutdown();
         try {
-            workerPool.awaitTermination(10, TimeUnit.SECONDS);
-            criticalPool.awaitTermination(10, TimeUnit.SECONDS);
+            if (workerPool != null) workerPool.awaitTermination(10, TimeUnit.SECONDS);
+            if (criticalPool != null) criticalPool.awaitTermination(10, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
