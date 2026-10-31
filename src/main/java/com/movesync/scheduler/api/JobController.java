@@ -56,7 +56,7 @@ public class JobController {
                             value = "{\n" +
                                     "  \"jobType\": \"ROSTER_GENERATION\",\n" +
                                     "  \"scheduleType\": \"RECURRING\",\n" +
-                                    "  \"cronExpression\": \"0 0 18 * * ?\",\n" +
+                                    "  \"cronExpression\": \"0 18 * * *\",\n" +
                                     "  \"timezone\": \"Asia/Kolkata\",\n" +
                                     "  \"priority\": \"CRITICAL\",\n" +
                                     "  \"misfirePolicy\": \"FIRE_NOW\",\n" +

@@ -15,12 +15,35 @@ import java.util.Optional;
 
 public class CronResolver {
 
-    private final CronParser parser;
+    private final CronParser unixParser;
+    private final CronParser quartzParser;
+    private final CronParser springParser;
 
     public CronResolver() {
-        this.parser = new CronParser(
+        this.unixParser = new CronParser(
             CronDefinitionBuilder.instanceDefinitionFor(CronType.UNIX)
         );
+        this.quartzParser = new CronParser(
+            CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ)
+        );
+        this.springParser = new CronParser(
+            CronDefinitionBuilder.instanceDefinitionFor(CronType.SPRING53)
+        );
+    }
+
+    private Cron parseCron(String cronExpression) {
+        String trimmed = cronExpression.trim();
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length == 5) {
+            return unixParser.parse(trimmed);
+        } else if (parts.length == 6 || parts.length == 7) {
+            try {
+                return quartzParser.parse(trimmed);
+            } catch (Exception e) {
+                return springParser.parse(trimmed);
+            }
+        }
+        return unixParser.parse(trimmed);
     }
 
     public Instant nextFireTime(String cronExpression, String timezoneId) {
@@ -30,15 +53,9 @@ public class CronResolver {
     /**
      * Compute the next fire time after 'after' in the given timezone.
      * Returns UTC instant.
-     *
-     * DST spring-forward: if the local time doesn't exist (e.g., 02:30 during
-     * spring-forward), ZonedDateTime advances to the next valid time (03:00).
-     *
-     * DST fall-back: if the local time occurs twice, we use the first
-     * occurrence (withEarlierOffsetAtOverlap is the default in java.time).
      */
     public Instant nextFireTime(String cronExpression, String timezoneId, Instant after) {
-        Cron cron = parser.parse(cronExpression);
+        Cron cron = parseCron(cronExpression);
         cron.validate();
 
         ZoneId zone = ZoneId.of(timezoneId);
@@ -70,7 +87,6 @@ public class CronResolver {
      * Validate a cron expression. Throws if invalid.
      */
     public void validate(String cronExpression) {
-        parser.parse(cronExpression).validate();
+        parseCron(cronExpression).validate();
     }
 }
-
