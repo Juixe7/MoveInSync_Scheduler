@@ -30,3 +30,4 @@ public class OpenApiConfig {
                         .description("Enter your JWT token (e.g. Tenant A Admin or Operator token from SeedTokenPrinter)")));
     }
 }
+
