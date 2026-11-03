@@ -42,6 +42,18 @@ Designed to coordinate hundreds of thousands of daily time-critical jobs (roster
                                └──────────────────────┘
 ```
 
+### Execution Sequence
+
+The diagram shows how a scheduler node polls its owned partitions, dispatches a due job, commits completion through the fencing check, and publishes the outbox event to Kafka.
+
+![Scheduler job execution sequence](docs/images/scheduler-sequence-diagram.png)
+
+### Job Execution Lifecycle
+
+The lifecycle diagram shows the execution states and the main retry, recovery, cancellation, and completion transitions.
+
+![Job execution lifecycle](docs/images/job-execution-lifecycle.png)
+
 ### Key Engineering Guarantees
 
 | Guarantee | Mechanism | Verification |
